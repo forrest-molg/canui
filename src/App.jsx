@@ -800,7 +800,7 @@ export default function App() {
               paper_bgcolor: "transparent",
               plot_bgcolor: "#0d0d0d",
               font: { color: "#ffffff", family: "system-ui", size: 11 },
-              dragmode: measureMode ? false : "pan",
+              dragmode: measureMode ? "zoom" : "pan",
               xaxis: {
                 title: { text: "Local Time", standoff: 8, font: { color: "#e0e0e0", size: 10 } },
                 color: "#ffffff",
@@ -848,7 +848,7 @@ export default function App() {
             config={{
               displayModeBar: true,
               displaylogo: false,
-              scrollZoom: !measureMode,
+              scrollZoom: true,
               modeBarButtonsToRemove: ["sendDataToCloud", "lasso2d", "select2d", "autoScale2d"],
               toImageButtonOptions: {
                 format: "png",
