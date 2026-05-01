@@ -53,7 +53,7 @@ Decoded CAN frames for the current view window are shown in a scrollable table:
 
 ### Navigation
 
-- **Prev / Next edge buttons**: jump to the previous or next CAN SOF edge anywhere in the last 1 second of data. Uses the `/find_edge` API endpoint.
+- **Prev / Next window buttons**: jump back or forward by one current window width.
 - **Refresh button**: re-fetch the current viewport at the current zoom level.
 - **Start time input + Go button**: jump to any arbitrary UTC timestamp.
 
@@ -61,7 +61,8 @@ Decoded CAN frames for the current view window are shown in a scrollable table:
 
 - Click the **Cursors** button to enter measure mode.
 - Click two points on the waveform — a Δt readout appears showing the time difference in µs, ms, or s.
-- Useful for measuring bit times, frame spacing, and inter-frame gaps.
+- In measure mode the minimum zoom window is relaxed from **2 ms to 200 µs**, allowing you to zoom in to individual CAN bits (8 µs at 125 kbps) for precise cursor placement.
+- Scroll-wheel zoom is disabled in measure mode (so wheel scrolls the page rather than the chart); use the Plotly box-zoom tool instead.
 
 ### Storage widget
 
@@ -100,7 +101,8 @@ The built output (`dist/`) is served by `ui_server.py` at `/opt/candb/` on port 
 |---|---|---|
 | `API` | `http://100.113.84.82:8000` | candb API base URL — change this for a different host |
 | `WINDOW_MS` | `10` | Default display window width (ms) on first load |
-| `MIN_WINDOW_S` | `0.002` | Minimum zoom window (2 ms — ~25 CAN bits) |
+| `MIN_WINDOW_S` | `0.002` | Minimum zoom window in normal mode (2 ms — ~25 CAN bits) |
+| `MIN_WINDOW_MEASURE_S` | `0.0002` | Minimum zoom window in measure mode (200 µs — ~2.5 CAN bits) |
 | `GAP_THRESH_S` | `0.002` | Gap threshold for null-break insertion in traces |
 
 ## Build and Deploy

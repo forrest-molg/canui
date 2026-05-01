@@ -57,7 +57,8 @@ function hexToText(hexStr) {
 }
 
 const WINDOW_MS = 10; // default display window in ms
-const MIN_WINDOW_S = 0.002; // 2 ms — minimum zoom window
+const MIN_WINDOW_S = 0.002;        // 2 ms — minimum zoom window (normal mode)
+const MIN_WINDOW_MEASURE_S = 0.0002; // 200 µs — minimum zoom window in measure mode
 
 // For each pair of adjacent samples more than GAP_THRESH_S apart:
 //   - insert a null break in the main trace (no false blue/orange bridge)
@@ -104,7 +105,6 @@ export default function App() {
   const [frames,      setFrames]      = useState(null);
   const [decoding,    setDecoding]    = useState(false);
   const [decodeError, setDecodeError] = useState("");
-  const [findingEdge, setFindingEdge] = useState(null); // null | "prev" | "next"
   const [viewRange,   setViewRange]   = useState(null); // [unixS_start, unixS_end] | null
   // Cursor measure tool: two timestamps placed by clicking the chart
   const [measureMode,    setMeasureMode]    = useState(false);
@@ -209,13 +209,15 @@ export default function App() {
     const r0 = viewRange ? viewRange[0] : (start ? new Date(start).getTime() / 1000 : null);
     let   r1 = viewRange ? viewRange[1] : (start ? new Date(start).getTime() / 1000 + WINDOW_MS / 1000 : null);
     if (r0 == null) { setError("Select a start time."); return; }
-    // If zoomed in tighter than the minimum, expand to MIN_WINDOW_S before fetching
+    // If zoomed in tighter than the minimum, expand to the floor before fetching.
+    // In measure mode the floor is 200 µs; normally 2 ms.
+    const minWin = measureMode ? MIN_WINDOW_MEASURE_S : MIN_WINDOW_S;
     let effectiveR0 = r0;
     let effectiveR1 = r1;
-    if (r1 - r0 < MIN_WINDOW_S) {
+    if (r1 - r0 < minWin) {
       const mid = (r0 + r1) / 2;
-      effectiveR0 = mid - MIN_WINDOW_S / 2;
-      effectiveR1 = mid + MIN_WINDOW_S / 2;
+      effectiveR0 = mid - minWin / 2;
+      effectiveR1 = mid + minWin / 2;
       setViewRange([effectiveR0, effectiveR1]);
       setUiRevision(v => v + 1);
     }
@@ -225,7 +227,7 @@ export default function App() {
     setStart(actualStart);
     setUiRevision(v => v + 1);
     fetchAt(actualStart, windowMs);
-  }, [fetchAt, start, viewRange]);
+  }, [fetchAt, start, viewRange, measureMode]);
 
   // Step forward/back by one current window width
   const navigate = useCallback((dir) => {
@@ -255,13 +257,15 @@ export default function App() {
     }
     if (r0 == null || r1 == null || ev["xaxis.autorange"]) return;
 
-    // Enforce minimum window: if the user zoomed in past 2 ms, expand symmetrically
+    // Enforce minimum window — relaxed in measure mode so cursors can be placed
+    // at sub-bit precision (200 µs vs the normal 2 ms floor).
+    const minWin = measureMode ? MIN_WINDOW_MEASURE_S : MIN_WINDOW_S;
     let win = r1 - r0;
-    if (win < MIN_WINDOW_S) {
+    if (win < minWin) {
       const mid = (r0 + r1) / 2;
-      r0 = mid - MIN_WINDOW_S / 2;
-      r1 = mid + MIN_WINDOW_S / 2;
-      win = MIN_WINDOW_S;
+      r0 = mid - minWin / 2;
+      r1 = mid + minWin / 2;
+      win = minWin;
     }
 
     setViewRange([r0, r1]);                         // lock axis immediately on every event
@@ -288,29 +292,9 @@ export default function App() {
       setStart(newStart);
       fetchAt(newStart, durationMs);
     }, 200);
-  }, [fetchAt]);
+  }, [fetchAt, measureMode]);
 
-  const findEdge = useCallback(async (direction) => {
-    if (!start) return;
-    setFindingEdge(direction); setError("");
-    try {
-      const params = new URLSearchParams({
-        bus_id: busId,
-        ref: new Date(start).toISOString(),
-        direction,
-      });
-      const res = await fetch(`${API}/find_edge?${params}`);
-      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail ?? `HTTP ${res.status}`); }
-      const { time_unix } = await res.json();
-      const newStart = toDatetimeLocal(new Date(time_unix * 1000));
-      applyStart(newStart);
-      fetchAt(newStart);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setFindingEdge(null);
-    }
-  }, [busId, start, fetchAt, applyStart]);
+
 
   const decodeFrames = useCallback(async () => {
     if (!start) return;
@@ -665,31 +649,17 @@ export default function App() {
           <span className="ctrl-label">Navigate</span>
           <div className="nav-btns">
             <button
-              className="nav-btn nav-btn-edge"
-              onClick={() => findEdge("prev")}
-              disabled={loading || findingEdge !== null || !start}
-              title="Prev rising edge (CAN-H > 3.3 V)"
-            >{findingEdge === "prev" ? <span className="spinner" style={{width:9,height:9,borderWidth:2}}/> : "↑◀"}</button>
-            <div className="nav-sep" />
-            <button
               className="nav-btn"
               onClick={() => navigate(-1)}
-              disabled={loading || findingEdge !== null || !start}
+              disabled={loading || !start}
               title="Previous window"
             >&#9664;</button>
             <button
               className="nav-btn"
               onClick={() => navigate(1)}
-              disabled={loading || findingEdge !== null || !start}
+              disabled={loading || !start}
               title="Next window"
             >&#9654;</button>
-            <div className="nav-sep" />
-            <button
-              className="nav-btn nav-btn-edge"
-              onClick={() => findEdge("next")}
-              disabled={loading || findingEdge !== null || !start}
-              title="Next rising edge (CAN-H > 3.3 V)"
-            >{findingEdge === "next" ? <span className="spinner" style={{width:9,height:9,borderWidth:2}}/> : "↑▶"}</button>
           </div>
         </div>
 
@@ -839,8 +809,9 @@ export default function App() {
                 zerolinecolor: "#2a2a2a",
                 tickfont: { color: "#ffffff", size: 10 },
                 type: "linear",
-                // Plotly's minallowed stops the scroll wheel / box-zoom before going under 2 ms
-                minallowed: MIN_WINDOW_S,
+                // In measure mode allow zooming to 200 µs for precise cursor placement.
+                // In normal mode the 2 ms floor prevents blank charts on over-zoom.
+                minallowed: measureMode ? MIN_WINDOW_MEASURE_S : MIN_WINDOW_S,
                 // uirevision: constant during pan/zoom — Plotly ignores the range prop
                 // and preserves the user's interactive zoom.  Bumped on explicit navigation
                 // so Plotly accepts the new range and jumps to the requested position.
