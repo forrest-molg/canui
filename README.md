@@ -76,6 +76,41 @@ The **Download PDF** button captures the current waveform chart as a PNG via `Pl
 
 The **Export CSV** button downloads full-resolution raw samples (no downsampling) for the current viewport as a CSV file with columns `time_unix_s`, `time_utc`, `voltage_v`. Limited to 60-second windows.
 
+## Performance & Network Load
+
+canui is a read-only viewer. It never pushes data — all traffic is outbound HTTP GET requests from the browser to candb.
+
+### Per-request payload
+
+Each waveform fetch calls `/query` twice (CAN-H and CAN-L). The API returns up to 8,000 time+voltage float pairs per channel as JSON.
+
+| Item | Uncompressed | Gzip (typical) |
+|---|---|---|
+| `/query` response (one channel, 8,000 pts) | ~100–110 KB | ~25–35 KB |
+| Both channels (H + L) per fetch | ~200–220 KB | ~50–60 KB |
+| `/decode` response (10 ms, ~15 frames + bit annotations) | ~30–80 KB | ~10–25 KB |
+| `/storage` response | < 1 KB | < 1 KB |
+
+### Request rate
+
+| Activity | Requests/s | Bandwidth (gzip) |
+|---|---|---|
+| Idle (no interaction) | 0 | 0 |
+| Panning continuously | ~2–5 waveform fetches/s (200 ms debounce) | **~100–300 KB/s** |
+| Clicking Decode CAN Frames | 1 decode request on demand | ~10–25 KB/click |
+| Storage widget refresh | 1 request / 10 minutes | negligible |
+| Peak (fast pan + decode) | ~6–8 total requests/s | **~300–500 KB/s** |
+
+**Accessing from a separate computer over a LAN or Tailscale VPN**: the UI is extremely lightweight by network standards. Peak sustained traffic during active panning is well under **1 Mbit/s**. A 10 Mbit/s connection is more than sufficient.
+
+### UI responsiveness vs network latency
+
+The 200 ms pan debounce absorbs normal LAN latency (<1 ms). Over Tailscale (WireGuard, typically 5–30 ms RTT), the debounce still fires well before the next interaction, so panning feels responsive. Latency only becomes noticeable if the `/query` response itself takes >300 ms — which would indicate a slow candb query (see candb performance notes).
+
+### Browser-side rendering
+
+Plotly.js renders up to 8,000 scatter points + up to 800 bit-boundary line shapes in one `react-plotly.js` update. On a modern browser this takes **10–40 ms** per frame. The bit-line overlay (shapes array) is the dominant cost: at 800 shapes, re-render takes ~30–60 ms. Zooming in reduces the visible shape count and speeds up re-render proportionally.
+
 ## File Structure
 
 ```
